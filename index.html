@@ -38,7 +38,7 @@
             position: relative;
         }
 
-        video {
+        #localVideo {
             width: 100%;
             max-width: 1200px;
             height: auto;
@@ -46,6 +46,7 @@
             border-radius: 12px;
             background: #000;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+            transform: scaleX(-1);
         }
 
         .video-off-placeholder {
@@ -54,10 +55,14 @@
             height: 80vh;
             border-radius: 12px;
             background: #1e293b;
-            display: flex;
+            display: none;
             align-items: center;
             justify-content: center;
             box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+        }
+
+        .video-off-placeholder.show {
+            display: flex;
         }
 
         .avatar {
@@ -82,6 +87,7 @@
             padding: 8px 16px;
             border-radius: 8px;
             font-size: 14px;
+            z-index: 10;
         }
 
         .controls {
@@ -131,18 +137,22 @@
             color: white;
         }
 
+        .btn-chat.active {
+            background: #f59e0b;
+        }
+
         .chat-panel {
-            width: 350px;
+            width: 0;
             background: #1e293b;
             display: flex;
             flex-direction: column;
             border-left: 1px solid #334155;
-            transform: translateX(100%);
-            transition: transform 0.3s;
+            overflow: hidden;
+            transition: width 0.3s;
         }
 
         .chat-panel.open {
-            transform: translateX(0);
+            width: 350px;
         }
 
         .chat-header {
@@ -153,10 +163,12 @@
             justify-content: space-between;
             align-items: center;
             border-bottom: 1px solid #334155;
+            min-height: 60px;
         }
 
         .chat-header h3 {
             font-size: 18px;
+            white-space: nowrap;
         }
 
         .close-chat {
@@ -165,12 +177,14 @@
             height: 32px;
             color: white;
             font-size: 20px;
+            flex-shrink: 0;
         }
 
         .messages {
             flex: 1;
             overflow-y: auto;
             padding: 20px;
+            min-height: 0;
         }
 
         .message {
@@ -179,6 +193,7 @@
             padding: 10px 12px;
             border-radius: 8px;
             color: white;
+            word-wrap: break-word;
         }
 
         .message-user {
@@ -204,7 +219,7 @@
             border-top: 1px solid #334155;
         }
 
-        .chat-input form {
+        .chat-form {
             display: flex;
             gap: 10px;
         }
@@ -224,7 +239,7 @@
             border-color: #3b82f6;
         }
 
-        .chat-input button {
+        .send-btn {
             width: auto;
             padding: 0 20px;
             border-radius: 8px;
@@ -234,7 +249,7 @@
         }
 
         .hidden {
-            display: none;
+            display: none !important;
         }
     </style>
 </head>
@@ -242,29 +257,29 @@
     <div class="container">
         <div class="video-area">
             <div class="video-container">
-                <video id="localVideo" autoplay muted playsinline></video>
-                <div id="videoOffPlaceholder" class="video-off-placeholder hidden">
+                <video id="localVideo" autoplay playsinline></video>
+                <div id="videoOffPlaceholder" class="video-off-placeholder">
                     <div class="avatar" id="avatar"></div>
                 </div>
                 <div class="username-badge" id="usernameBadge"></div>
             </div>
             <div class="controls">
-                <button class="btn-mute" id="muteBtn" onclick="toggleMute()">🎤</button>
-                <button class="btn-video" id="videoBtn" onclick="toggleVideo()">📹</button>
-                <button class="btn-chat" onclick="toggleChat()">💬</button>
+                <button class="btn-mute" id="muteBtn">🎤</button>
+                <button class="btn-video" id="videoBtn">📹</button>
+                <button class="btn-chat" id="chatBtn">💬</button>
             </div>
         </div>
 
         <div class="chat-panel" id="chatPanel">
             <div class="chat-header">
                 <h3>Chat</h3>
-                <button class="close-chat" onclick="toggleChat()">×</button>
+                <button class="close-chat" id="closeChatBtn">×</button>
             </div>
             <div class="messages" id="messages"></div>
             <div class="chat-input">
-                <form onsubmit="sendMessage(event)">
+                <form class="chat-form" id="chatForm">
                     <input type="text" id="messageInput" placeholder="Type a message..." autocomplete="off">
-                    <button type="submit">Send</button>
+                    <button type="submit" class="send-btn">Send</button>
                 </form>
             </div>
         </div>
@@ -276,7 +291,17 @@
         let isVideoOff = false;
         let isChatOpen = false;
         const username = 'User' + Math.floor(Math.random() * 1000);
-        const messages = [];
+
+        const localVideo = document.getElementById('localVideo');
+        const videoOffPlaceholder = document.getElementById('videoOffPlaceholder');
+        const muteBtn = document.getElementById('muteBtn');
+        const videoBtn = document.getElementById('videoBtn');
+        const chatBtn = document.getElementById('chatBtn');
+        const closeChatBtn = document.getElementById('closeChatBtn');
+        const chatPanel = document.getElementById('chatPanel');
+        const chatForm = document.getElementById('chatForm');
+        const messageInput = document.getElementById('messageInput');
+        const messagesDiv = document.getElementById('messages');
 
         document.getElementById('usernameBadge').textContent = username;
         document.getElementById('avatar').textContent = username[0];
@@ -288,10 +313,11 @@
                     video: true, 
                     audio: true 
                 });
-                document.getElementById('localVideo').srcObject = stream;
+                localVideo.srcObject = stream;
+                localVideo.muted = true; // Mute own audio to prevent feedback
             } catch (err) {
                 console.error('Error accessing media:', err);
-                alert('Could not access camera/microphone. Please check permissions.');
+                alert('Could not access camera/microphone. Please allow permissions and refresh.');
             }
         }
 
@@ -301,9 +327,8 @@
                 if (audioTrack) {
                     audioTrack.enabled = !audioTrack.enabled;
                     isMuted = !audioTrack.enabled;
-                    const btn = document.getElementById('muteBtn');
-                    btn.classList.toggle('active', isMuted);
-                    btn.textContent = isMuted ? '🔇' : '🎤';
+                    muteBtn.classList.toggle('active', isMuted);
+                    muteBtn.textContent = isMuted ? '🔇' : '🎤';
                 }
             }
         }
@@ -314,47 +339,65 @@
                 if (videoTrack) {
                     videoTrack.enabled = !videoTrack.enabled;
                     isVideoOff = !videoTrack.enabled;
-                    const btn = document.getElementById('videoBtn');
-                    btn.classList.toggle('active', isVideoOff);
-                    btn.textContent = isVideoOff ? '📷' : '📹';
+                    videoBtn.classList.toggle('active', isVideoOff);
+                    videoBtn.textContent = isVideoOff ? '📷' : '📹';
                     
-                    document.getElementById('localVideo').classList.toggle('hidden', isVideoOff);
-                    document.getElementById('videoOffPlaceholder').classList.toggle('hidden', !isVideoOff);
+                    if (isVideoOff) {
+                        localVideo.classList.add('hidden');
+                        videoOffPlaceholder.classList.add('show');
+                    } else {
+                        localVideo.classList.remove('hidden');
+                        videoOffPlaceholder.classList.remove('show');
+                    }
                 }
             }
         }
 
         function toggleChat() {
             isChatOpen = !isChatOpen;
-            document.getElementById('chatPanel').classList.toggle('open', isChatOpen);
+            chatPanel.classList.toggle('open', isChatOpen);
+            chatBtn.classList.toggle('active', isChatOpen);
+            if (isChatOpen) {
+                messageInput.focus();
+            }
         }
 
         function sendMessage(e) {
             e.preventDefault();
-            const input = document.getElementById('messageInput');
-            const text = input.value.trim();
+            const text = messageInput.value.trim();
             
             if (text) {
                 const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                messages.push({ user: username, text, time });
                 
-                const messagesDiv = document.getElementById('messages');
                 const messageEl = document.createElement('div');
                 messageEl.className = 'message';
                 messageEl.innerHTML = `
                     <div class="message-user">${username}</div>
-                    <div class="message-text">${text}</div>
+                    <div class="message-text">${escapeHtml(text)}</div>
                     <div class="message-time">${time}</div>
                 `;
                 messagesDiv.appendChild(messageEl);
                 messagesDiv.scrollTop = messagesDiv.scrollHeight;
                 
-                input.value = '';
+                messageInput.value = '';
             }
         }
 
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // Event listeners
+        muteBtn.addEventListener('click', toggleMute);
+        videoBtn.addEventListener('click', toggleVideo);
+        chatBtn.addEventListener('click', toggleChat);
+        closeChatBtn.addEventListener('click', toggleChat);
+        chatForm.addEventListener('submit', sendMessage);
+
         // Start call on load
-        startCall();
+        window.addEventListener('load', startCall);
     </script>
 </body>
 </html>
